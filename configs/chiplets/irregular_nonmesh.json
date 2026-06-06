@@ -1,0 +1,151 @@
+{
+  "chiplets": [
+    {
+      "id": "host",
+      "rows": 1,
+      "cols": 1,
+      "layers": 1,
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "width": 16,
+      "clock_domain": "fast",
+      "router_latency": 1,
+      "link_latency": 1
+    },
+    {
+      "id": "accelerator",
+      "rows": 1,
+      "cols": 1,
+      "layers": 1,
+      "x": 2,
+      "y": 1,
+      "z": 0,
+      "width": 16,
+      "clock_domain": "fast",
+      "router_latency": 1,
+      "link_latency": 1
+    },
+    {
+      "id": "io",
+      "rows": 1,
+      "cols": 1,
+      "layers": 1,
+      "x": 4,
+      "y": 0,
+      "z": 0,
+      "width": 8,
+      "clock_domain": "slow",
+      "router_latency": 2,
+      "link_latency": 2
+    },
+    {
+      "id": "memory",
+      "rows": 1,
+      "cols": 1,
+      "layers": 1,
+      "x": 1,
+      "y": 3,
+      "z": 0,
+      "width": 8,
+      "clock_domain": "memory",
+      "router_latency": 2,
+      "link_latency": 2
+    },
+    {
+      "id": "bridge",
+      "rows": 1,
+      "cols": 1,
+      "layers": 1,
+      "x": 3,
+      "y": 3,
+      "z": 0,
+      "width": 16,
+      "clock_domain": "fast",
+      "router_latency": 1,
+      "link_latency": 1
+    }
+  ],
+  "links": [
+    {
+      "src": {"chiplet": "host", "x": 0, "y": 0, "z": 0},
+      "dst": {"chiplet": "accelerator", "x": 0, "y": 0, "z": 0},
+      "src_outport": "HostToAccel",
+      "dst_inport": "AccelFromHost",
+      "dst_outport": "AccelToHost",
+      "src_inport": "HostFromAccel",
+      "latency": 1,
+      "weight": 1,
+      "width": 16,
+      "bidirectional": true
+    },
+    {
+      "src": {"chiplet": "accelerator", "x": 0, "y": 0, "z": 0},
+      "dst": {"chiplet": "io", "x": 0, "y": 0, "z": 0},
+      "src_outport": "AccelToIo",
+      "dst_inport": "IoFromAccel",
+      "dst_outport": "IoToAccel",
+      "src_inport": "AccelFromIo",
+      "latency": 2,
+      "weight": 2,
+      "width": 8,
+      "bidirectional": true
+    },
+    {
+      "src": {"chiplet": "io", "x": 0, "y": 0, "z": 0},
+      "dst": {"chiplet": "memory", "x": 0, "y": 0, "z": 0},
+      "src_outport": "IoToMem",
+      "dst_inport": "MemFromIo",
+      "dst_outport": "MemToIo",
+      "src_inport": "IoFromMem",
+      "latency": 3,
+      "weight": 3,
+      "width": 8,
+      "bidirectional": true
+    },
+    {
+      "src": {"chiplet": "memory", "x": 0, "y": 0, "z": 0},
+      "dst": {"chiplet": "bridge", "x": 0, "y": 0, "z": 0},
+      "src_outport": "MemToBridge",
+      "dst_inport": "BridgeFromMem",
+      "dst_outport": "BridgeToMem",
+      "src_inport": "MemFromBridge",
+      "latency": 1,
+      "weight": 1,
+      "width": 8,
+      "bidirectional": true
+    },
+    {
+      "src": {"chiplet": "bridge", "x": 0, "y": 0, "z": 0},
+      "dst": {"chiplet": "host", "x": 0, "y": 0, "z": 0},
+      "src_outport": "BridgeToHost",
+      "dst_inport": "HostFromBridge",
+      "dst_outport": "HostToBridge",
+      "src_inport": "BridgeFromHost",
+      "latency": 4,
+      "weight": 4,
+      "width": 16,
+      "bidirectional": true
+    },
+    {
+      "src": {"chiplet": "accelerator", "x": 0, "y": 0, "z": 0},
+      "dst": {"chiplet": "memory", "x": 0, "y": 0, "z": 0},
+      "src_outport": "AccelBypassToMem",
+      "dst_inport": "MemBypassFromAccel",
+      "dst_outport": "MemBypassToAccel",
+      "src_inport": "AccelBypassFromMem",
+      "latency": 1,
+      "weight": 1,
+      "width": 8,
+      "supported_vnets": [1],
+      "bidirectional": true
+    }
+  ],
+  "controller_placement": {
+    "0": {"chiplet": "host", "x": 0, "y": 0, "z": 0},
+    "1": {"chiplet": "accelerator", "x": 0, "y": 0, "z": 0},
+    "2": {"chiplet": "io", "x": 0, "y": 0, "z": 0},
+    "3": {"chiplet": "memory", "x": 0, "y": 0, "z": 0},
+    "4": {"chiplet": "bridge", "x": 0, "y": 0, "z": 0}
+  }
+}

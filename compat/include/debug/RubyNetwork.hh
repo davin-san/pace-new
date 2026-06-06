@@ -1,0 +1,6 @@
+#ifndef __PACE_COMPAT_DEBUG_RUBYNETWORK_HH__
+#define __PACE_COMPAT_DEBUG_RUBYNETWORK_HH__
+
+#include "base/trace.hh"
+
+#endif // __PACE_COMPAT_DEBUG_RUBYNETWORK_HH__

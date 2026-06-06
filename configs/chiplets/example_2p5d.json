@@ -1,0 +1,75 @@
+{
+  "chiplets": [
+    {
+      "id": "compute0",
+      "rows": 2,
+      "cols": 2,
+      "layers": 1,
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "width": 16,
+      "clock_domain": "compute_fast",
+      "router_latency": 1,
+      "link_latency": 1
+    },
+    {
+      "id": "compute1",
+      "rows": 2,
+      "cols": 2,
+      "layers": 1,
+      "x": 4,
+      "y": 0,
+      "z": 0,
+      "width": 16,
+      "clock_domain": "compute_fast",
+      "router_latency": 1,
+      "link_latency": 1
+    },
+    {
+      "id": "io",
+      "rows": 1,
+      "cols": 2,
+      "layers": 1,
+      "x": 2,
+      "y": 3,
+      "z": 0,
+      "width": 8,
+      "clock_domain": "io_slow",
+      "router_latency": 2,
+      "link_latency": 2
+    }
+  ],
+  "links": [
+    {
+      "src": {"chiplet": "compute0", "x": 1, "y": 0, "z": 0},
+      "dst": {"chiplet": "compute1", "x": 0, "y": 0, "z": 0},
+      "src_outport": "InterposerEast",
+      "dst_inport": "InterposerWest",
+      "dst_outport": "InterposerWest",
+      "src_inport": "InterposerEast",
+      "latency": 3,
+      "weight": 4,
+      "width": 16,
+      "bidirectional": true
+    },
+    {
+      "src": {"chiplet": "compute0", "x": 1, "y": 1, "z": 0},
+      "dst": {"chiplet": "io", "x": 0, "y": 0, "z": 0},
+      "src_outport": "InterposerSouth",
+      "dst_inport": "InterposerNorth",
+      "dst_outport": "InterposerNorth",
+      "src_inport": "InterposerSouth",
+      "latency": 5,
+      "weight": 5,
+      "width": 8,
+      "bidirectional": true
+    }
+  ],
+  "controller_placement": {
+    "0": {"chiplet": "compute0", "x": 0, "y": 0, "z": 0},
+    "1": {"chiplet": "compute0", "x": 1, "y": 0, "z": 0},
+    "2": {"chiplet": "compute1", "x": 0, "y": 0, "z": 0},
+    "3": {"chiplet": "compute1", "x": 1, "y": 0, "z": 0}
+  }
+}
