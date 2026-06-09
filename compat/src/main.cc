@@ -20,7 +20,12 @@ usage(const char* program)
 {
     std::cerr << "Usage: " << program << " --topology-json <path> [--simulate]"
               << " [--drain-cycles N] [--stats-json path]"
-              << " [--trace-jsonl path] [--replay-json path]\n";
+              << " [--trace-jsonl path] [--replay-json path]"
+              << " [--traffic-profile-json path] [--profile-sim-cycles N]"
+              << " [--profile-rate-scale X] [--profile-closed-loop]"
+              << " [--profile-bursty] [--profile-phased]"
+              << " [--profile-flow-timing]"
+              << " [--profile-flow-timing-auto]\n";
 }
 
 int
@@ -105,6 +110,56 @@ writeMap(std::ostream& out, const std::vector<uint64_t>& values,
     out << "}";
 }
 
+uint64_t percentileNearestRank(std::vector<uint64_t> values, int percentile);
+
+void
+writePacketLatencyBreakdown(
+    std::ostream& out,
+    const std::vector<pace::TrafficLatencySample>& samples,
+    int indent)
+{
+    std::map<int, std::map<int, std::vector<uint64_t>>> grouped;
+    for (const auto& sample : samples) {
+        grouped[sample.vnet][sample.flits].push_back(sample.latency);
+    }
+    out << "{";
+    bool first_vnet = true;
+    for (auto& [vnet, by_flits] : grouped) {
+        if (!first_vnet) {
+            out << ",";
+        }
+        out << "\n" << std::string(indent + 2, ' ') << "\"" << vnet
+            << "\": {";
+        bool first_flits = true;
+        for (auto& [flits, values] : by_flits) {
+            uint64_t sum = 0;
+            for (const uint64_t value : values) {
+                sum += value;
+            }
+            const double avg = values.empty() ? 0.0 :
+                static_cast<double>(sum) / static_cast<double>(values.size());
+            const uint64_t p99 = percentileNearestRank(values, 99);
+            if (!first_flits) {
+                out << ",";
+            }
+            out << "\n" << std::string(indent + 4, ' ') << "\"" << flits
+                << "\": {\"count\": " << values.size()
+                << ", \"avg\": " << avg
+                << ", \"p99\": " << p99 << "}";
+            first_flits = false;
+        }
+        if (!by_flits.empty()) {
+            out << "\n" << std::string(indent + 2, ' ');
+        }
+        out << "}";
+        first_vnet = false;
+    }
+    if (!grouped.empty()) {
+        out << "\n" << std::string(indent, ' ');
+    }
+    out << "}";
+}
+
 const char*
 linkTypeName(gem5::ruby::garnet::link_type type)
 {
@@ -152,6 +207,12 @@ writeStatsJson(const std::string& path, const pace::RuntimeNetwork& runtime,
         static_cast<double>(stats.delivered);
     const uint64_t p99_packet_latency =
         percentileNearestRank(stats.packet_latencies, 99);
+    const double avg_packet_network_latency =
+        stats.delivered == 0 ? 0.0 :
+        static_cast<double>(stats.packet_network_latency_sum) /
+        static_cast<double>(stats.delivered);
+    const uint64_t p99_packet_network_latency =
+        percentileNearestRank(stats.packet_network_latencies, 99);
     out << "{\n";
     out << "  \"schema\": \"pace.garnet.stats.v1\",\n";
     out << "  \"cycles\": " << stats.cycles << ",\n";
@@ -163,6 +224,16 @@ writeStatsJson(const std::string& path, const pace::RuntimeNetwork& runtime,
     out << "    \"delivered_flits\": " << stats.delivered_flits << ",\n";
     out << "    \"avg_packet_latency_cycles\": " << avg_packet_latency << ",\n";
     out << "    \"p99_packet_latency_cycles\": " << p99_packet_latency << ",\n";
+    out << "    \"avg_packet_network_latency_cycles\": "
+        << avg_packet_network_latency << ",\n";
+    out << "    \"p99_packet_network_latency_cycles\": "
+        << p99_packet_network_latency << ",\n";
+    out << "    \"packet_latency_by_vnet_flits\": ";
+    writePacketLatencyBreakdown(out, stats.packet_latency_samples, 4);
+    out << ",\n";
+    out << "    \"packet_network_latency_by_vnet_flits\": ";
+    writePacketLatencyBreakdown(out, stats.packet_network_latency_samples, 4);
+    out << ",\n";
     out << "    \"injected_by_vnet\": ";
     writeMap(out, stats.injected_by_vnet, 4);
     out << ",\n";
@@ -206,8 +277,16 @@ main(int argc, char** argv)
     std::string stats_json;
     std::string trace_jsonl;
     std::string replay_json;
+    std::string traffic_profile_json;
     bool simulate = false;
     uint64_t drain_cycles = 0;
+    uint64_t profile_sim_cycles = 0;
+    double profile_rate_scale = 1.0;
+    bool profile_closed_loop = false;
+    bool profile_bursty = false;
+    bool profile_phased = false;
+    bool profile_flow_timing = false;
+    bool profile_flow_timing_auto = false;
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--topology-json" && i + 1 < argc) {
@@ -223,6 +302,24 @@ main(int argc, char** argv)
         } else if (arg == "--replay-json" && i + 1 < argc) {
             replay_json = argv[++i];
             simulate = true;
+        } else if (arg == "--traffic-profile-json" && i + 1 < argc) {
+            traffic_profile_json = argv[++i];
+            simulate = true;
+        } else if (arg == "--profile-sim-cycles" && i + 1 < argc) {
+            profile_sim_cycles = std::stoull(argv[++i]);
+        } else if (arg == "--profile-rate-scale" && i + 1 < argc) {
+            profile_rate_scale = std::stod(argv[++i]);
+        } else if (arg == "--profile-closed-loop") {
+            profile_closed_loop = true;
+        } else if (arg == "--profile-bursty") {
+            profile_bursty = true;
+        } else if (arg == "--profile-phased") {
+            profile_phased = true;
+        } else if (arg == "--profile-flow-timing") {
+            profile_flow_timing = true;
+        } else if (arg == "--profile-flow-timing-auto") {
+            profile_flow_timing = true;
+            profile_flow_timing_auto = true;
         } else if (arg == "--help" || arg == "-h") {
             usage(argv[0]);
             return 0;
@@ -257,7 +354,27 @@ main(int argc, char** argv)
                   << " vnets=" << runtime.virtual_networks << "\n";
         if (simulate) {
             pace::SyntheticTrafficStats stats;
-            if (!replay_json.empty()) {
+            if (!traffic_profile_json.empty()) {
+                auto config = pace::loadProfileTrafficConfig(
+                    traffic_profile_json, profile_sim_cycles, drain_cycles,
+                    profile_rate_scale, profile_closed_loop, profile_bursty,
+                    profile_phased, profile_flow_timing,
+                    profile_flow_timing_auto);
+                pace::ProfileTraffic traffic(runtime, config);
+                for (uint64_t cycle = 0; cycle < config.sim_cycles; cycle++) {
+                    gem5::eventQueue().setCurTick(cycle);
+                    traffic.step(cycle);
+                    gem5::eventQueue().process();
+                    traffic.drain(cycle);
+                }
+                for (uint64_t i = 0; i < config.drain_cycles; i++) {
+                    uint64_t cycle = config.sim_cycles + i;
+                    gem5::eventQueue().setCurTick(cycle);
+                    gem5::eventQueue().process();
+                    traffic.drain(cycle);
+                }
+                stats = traffic.stats();
+            } else if (!replay_json.empty()) {
                 auto config = pace::loadReplayTrafficConfig(
                     replay_json, drain_cycles);
                 pace::ReplayTraffic traffic(runtime, config);

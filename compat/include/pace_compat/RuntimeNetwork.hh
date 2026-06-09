@@ -42,6 +42,10 @@ struct RuntimeNetwork
     int request_nodes = 0;
     int directory_nodes = 0;
     int virtual_networks = 0;
+    int max_router_latency = 0;
+    int max_link_latency = 0;
+    std::vector<bool> vnet_ordered;
+    std::vector<std::string> vnet_type_names;
 };
 
 RuntimeNetwork instantiateRuntimeNetwork(const std::string& topology_json);

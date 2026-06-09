@@ -18,9 +18,9 @@ struct NetworkParams : public ClockedObject::Params
 {
     int number_of_virtual_networks = 3;
     int number_of_nodes = 0;
-    std::vector<bool> vnet_ordered = {true, false, false};
+    std::vector<bool> vnet_ordered = {false, false, false};
     std::vector<std::string> vnet_type_names = {
-        "request", "forward", "response"
+        "request", "response", "request"
     };
     Topology* topology = nullptr;
     RubySystem* ruby_system = nullptr;

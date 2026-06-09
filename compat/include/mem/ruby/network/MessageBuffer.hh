@@ -68,6 +68,7 @@ class MessageBuffer
 
     void enqueue(MsgPtr message, Tick curTime, Tick delta, ClockedObject*)
     {
+        message->setNetworkDequeueTime(curTime);
         message->setTime(curTime);
         _queue.push_back({message, curTime + delta});
         if (pace::traceEnabled()) {

@@ -139,6 +139,12 @@ class IntLink:
 class Network:
     topology: str
     number_of_virtual_networks: int = 3
+    vnet_ordered: list[bool] = field(
+        default_factory=lambda: [False, False, False]
+    )
+    vnet_type_names: list[str] = field(
+        default_factory=lambda: ["request", "response", "request"]
+    )
     vcs_per_vnet: int = 4
     ni_flit_size: int = 16
     routing_algorithm: int = 0
@@ -152,6 +158,8 @@ class Network:
             "schema": "pace.garnet.network.v1",
             "topology": self.topology,
             "number_of_virtual_networks": self.number_of_virtual_networks,
+            "vnet_ordered": self.vnet_ordered,
+            "vnet_type_names": self.vnet_type_names,
             "vcs_per_vnet": self.vcs_per_vnet,
             "ni_flit_size": self.ni_flit_size,
             "routing_algorithm": self.routing_algorithm,

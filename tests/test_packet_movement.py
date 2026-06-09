@@ -19,7 +19,7 @@ def main() -> int:
         raise RuntimeError("pace-new executable is missing; run make all first")
 
     _case("vnet0_control", 0)
-    _case("vnet2_data", 2)
+    _case("vnet1_data", 1)
 
     print("packet_movement: PASS")
     return 0
@@ -67,7 +67,7 @@ def _case(name: str, vnet: int) -> None:
         raise AssertionError(stats)
     if traffic["delivered_packets"] != 2:
         raise AssertionError(stats)
-    expected_flits = 10 if vnet == 2 else 2
+    expected_flits = 10 if vnet == 1 else 2
     if traffic["injected_flits"] != expected_flits:
         raise AssertionError(stats)
     if traffic["delivered_flits"] != expected_flits:

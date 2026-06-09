@@ -1,5 +1,6 @@
 #include "pace_compat/RuntimeNetwork.hh"
 
+#include <sstream>
 #include <stdexcept>
 
 #include "pace_compat/Json.hh"
@@ -50,6 +51,80 @@ std::vector<int> asIntVector(const Json& obj, const std::string& key)
         out.push_back(static_cast<int>(item.number()));
     }
     return out;
+}
+
+std::vector<bool> asBoolVector(const Json& obj, const std::string& key)
+{
+    std::vector<bool> out;
+    if (!obj.contains(key)) {
+        return out;
+    }
+    for (const auto& item : obj.at(key).array()) {
+        out.push_back(item.boolean());
+    }
+    return out;
+}
+
+std::vector<std::string> asStringVector(const Json& obj,
+                                        const std::string& key)
+{
+    std::vector<std::string> out;
+    if (!obj.contains(key)) {
+        return out;
+    }
+    for (const auto& item : obj.at(key).array()) {
+        out.push_back(item.string());
+    }
+    return out;
+}
+
+std::vector<bool> defaultVnetOrdered(int virtual_networks)
+{
+    return std::vector<bool>(virtual_networks, false);
+}
+
+std::vector<std::string> defaultVnetTypeNames(int virtual_networks)
+{
+    std::vector<std::string> names(virtual_networks, "request");
+    if (virtual_networks > 1) {
+        names[1] = "response";
+    }
+    return names;
+}
+
+template <class T>
+void requireSize(const std::vector<T>& values, int expected,
+                 const std::string& field)
+{
+    if (!values.empty() && static_cast<int>(values.size()) != expected) {
+        throw std::runtime_error(field + " has " +
+            std::to_string(values.size()) + " entries but network has " +
+            std::to_string(expected) + " virtual networks");
+    }
+}
+
+std::string joinBools(const std::vector<bool>& values)
+{
+    std::ostringstream out;
+    for (size_t i = 0; i < values.size(); i++) {
+        if (i != 0) {
+            out << ",";
+        }
+        out << (values[i] ? "true" : "false");
+    }
+    return out.str();
+}
+
+std::string joinStrings(const std::vector<std::string>& values)
+{
+    std::ostringstream out;
+    for (size_t i = 0; i < values.size(); i++) {
+        if (i != 0) {
+            out << ",";
+        }
+        out << values[i];
+    }
+    return out.str();
 }
 
 NetworkLinkParams networkLinkParams(const Json& link, const std::string& name,
@@ -153,6 +228,8 @@ instantiateRuntimeNetwork(const std::string& topology_json)
         params.vcs_per_vnet = vcs_per_vnet;
         params.width = static_cast<uint32_t>(asInt(router_json, "width",
                                                    ni_flit_size));
+        runtime.max_router_latency = std::max(
+            runtime.max_router_latency, static_cast<int>(params.latency));
         emplace(runtime.routers, params);
         traceEvent("runtime.router", {
             {"router_id", traceValue(params.router_id)},
@@ -235,6 +312,8 @@ instantiateRuntimeNetwork(const std::string& topology_json)
         params.latency = asInt(link_json, "latency", 1);
         params.bandwidth_factor = asInt(link_json, "bandwidth_factor", 16);
         params.weight = asInt(link_json, "weight", 1);
+        runtime.max_link_latency = std::max(
+            runtime.max_link_latency, static_cast<int>(params.latency));
         params.supported_vnets = asIntVector(link_json, "supported_vnets");
         params.network_links = {in_net, out_net};
         params.credit_links = {in_credit, out_credit};
@@ -339,6 +418,8 @@ instantiateRuntimeNetwork(const std::string& topology_json)
         params.latency = asInt(link_json, "latency", 1);
         params.bandwidth_factor = asInt(link_json, "bandwidth_factor", 16);
         params.weight = asInt(link_json, "weight", 1);
+        runtime.max_link_latency = std::max(
+            runtime.max_link_latency, static_cast<int>(params.latency));
         params.supported_vnets = asIntVector(link_json, "supported_vnets");
         params.network_link = net_link;
         params.credit_link = credit_link;
@@ -399,17 +480,21 @@ instantiateRuntimeNetwork(const std::string& topology_json)
     net_params.name = "garnet_network";
     net_params.number_of_virtual_networks = runtime.virtual_networks;
     net_params.number_of_nodes = runtime.nodes;
-    net_params.vnet_ordered.assign(runtime.virtual_networks, false);
-    if (runtime.virtual_networks > 0) {
-        net_params.vnet_ordered[0] = true;
+    net_params.vnet_ordered = asBoolVector(net, "vnet_ordered");
+    requireSize(net_params.vnet_ordered, runtime.virtual_networks,
+                "vnet_ordered");
+    if (net_params.vnet_ordered.empty()) {
+        net_params.vnet_ordered = defaultVnetOrdered(runtime.virtual_networks);
     }
-    net_params.vnet_type_names.assign(runtime.virtual_networks, "request");
-    if (runtime.virtual_networks > 1) {
-        net_params.vnet_type_names[1] = "forward";
+    net_params.vnet_type_names = asStringVector(net, "vnet_type_names");
+    requireSize(net_params.vnet_type_names, runtime.virtual_networks,
+                "vnet_type_names");
+    if (net_params.vnet_type_names.empty()) {
+        net_params.vnet_type_names =
+            defaultVnetTypeNames(runtime.virtual_networks);
     }
-    if (runtime.virtual_networks > 2) {
-        net_params.vnet_type_names[2] = "response";
-    }
+    runtime.vnet_ordered = net_params.vnet_ordered;
+    runtime.vnet_type_names = net_params.vnet_type_names;
     net_params.topology = runtime.topology.get();
     net_params.ruby_system = runtime.ruby_system.get();
     net_params.num_rows = asInt(net, "mesh_rows", 0);
@@ -421,6 +506,10 @@ instantiateRuntimeNetwork(const std::string& topology_json)
     for (auto& ni : runtime.netifs) {
         net_params.netifs.push_back(ni.get());
     }
+    traceEvent("runtime.vnet_metadata", {
+        {"vnet_ordered", traceValue(joinBools(net_params.vnet_ordered))},
+        {"vnet_type_names", traceValue(joinStrings(net_params.vnet_type_names))},
+    });
 
     runtime.network = std::make_unique<GarnetNetwork>(net_params);
     runtime.network->setNodeBuffers(runtime.to_net, runtime.from_net);

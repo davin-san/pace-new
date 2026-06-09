@@ -80,26 +80,26 @@ def mesh4x4_contention() -> dict[str, object]:
 def multi_vnet() -> dict[str, object]:
     packets = [
         packet(0, 0, 15, 0, 8),
-        packet(0, 1, 14, 1, 8),
-        packet(0, 2, 13, 2, 72),
+        packet(0, 1, 14, 2, 8),
+        packet(0, 2, 13, 1, 72),
         packet(4, 15, 0, 0, 8),
-        packet(4, 14, 1, 1, 8),
-        packet(4, 13, 2, 2, 72),
+        packet(4, 14, 1, 2, 8),
+        packet(4, 13, 2, 1, 72),
         packet(8, 5, 10, 0, 8),
-        packet(8, 6, 9, 1, 8),
-        packet(8, 7, 8, 2, 72),
+        packet(8, 6, 9, 2, 8),
+        packet(8, 7, 8, 1, 72),
     ]
     return replay_doc("multi_vnet", 16, 4, 180, 300, packets)
 
 
 def multi_flit() -> dict[str, object]:
     packets = [
-        packet(0, 0, 15, 2, 32),
-        packet(2, 1, 14, 2, 72),
-        packet(4, 2, 13, 2, 128),
-        packet(6, 3, 12, 2, 160),
-        packet(10, 12, 3, 2, 72),
-        packet(12, 13, 2, 2, 128),
+        packet(0, 0, 15, 1, 32),
+        packet(2, 1, 14, 1, 72),
+        packet(4, 2, 13, 1, 128),
+        packet(6, 3, 12, 1, 160),
+        packet(10, 12, 3, 1, 72),
+        packet(12, 13, 2, 1, 128),
     ]
     return replay_doc("multi_flit", 16, 4, 220, 360, packets)
 

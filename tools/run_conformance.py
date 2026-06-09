@@ -68,6 +68,10 @@ def main() -> int:
             [sys.executable, str(root / "tests" / "test_packet_movement.py")],
         ),
         (
+            "profile_width",
+            [sys.executable, str(root / "tests" / "test_profile_width.py")],
+        ),
+        (
             "trace_generation",
             [sys.executable, str(root / "tests" / "test_trace_generation.py")],
         ),
