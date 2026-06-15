@@ -132,7 +132,7 @@ new = r"""    out << "},\n";
 
     // ---- Exact per-phase topology-independent source-destination NI counts,
     //      split by packet flit count ----
-    out << "  \\"phase_src_dst_ni_flits_counts_by_vnet\\": [";
+    out << "  \"phase_src_dst_ni_flits_counts_by_vnet\": [";
     bool first_phase = true;
     for (size_t phase = 0;
          phase < m_phase_src_dst_ni_flits_inject_by_vnet.size();
@@ -148,8 +148,8 @@ new = r"""    out << "},\n";
         }
         if (!phase_has_rows) continue;
         if (!first_phase) out << ", ";
-        out << "{\\"phase_index\\": " << phase
-            << ", \\"src_dst_ni_flits_counts_by_vnet\\": {";
+        out << "{\"phase_index\": " << phase
+            << ", \"src_dst_ni_flits_counts_by_vnet\": {";
         bool phase_first_vnet = true;
         for (int v = 0; v < 3; ++v) {
             bool has_rows = false;
@@ -161,21 +161,21 @@ new = r"""    out << "},\n";
             }
             if (!has_rows) continue;
             if (!phase_first_vnet) out << ", ";
-            out << "\\"" << v << "\\": {";
+            out << "\"" << v << "\": {";
             bool first_src_by_vnet = true;
             for (int i = 0; i < m_max_nodes; ++i) {
                 if (m_phase_src_dst_ni_flits_inject_by_vnet[phase][v][i].empty()) continue;
                 if (!first_src_by_vnet) out << ", ";
-                out << "\\"" << i << "\\": {";
+                out << "\"" << i << "\": {";
                 bool first_dst_by_vnet = true;
                 for (const auto &dst_kv :
                      m_phase_src_dst_ni_flits_inject_by_vnet[phase][v][i]) {
                     if (!first_dst_by_vnet) out << ", ";
-                    out << "\\"" << dst_kv.first << "\\": {";
+                    out << "\"" << dst_kv.first << "\": {";
                     bool first_flits_by_dst = true;
                     for (const auto &flits_kv : dst_kv.second) {
                         if (!first_flits_by_dst) out << ", ";
-                        out << "\\"" << flits_kv.first << "\\": "
+                        out << "\"" << flits_kv.first << "\": "
                             << flits_kv.second;
                         first_flits_by_dst = false;
                     }
