@@ -37,18 +37,43 @@ def _mean_cpu_mshr(profile: dict) -> float:
     return sum(values) / len(values)
 
 
+def _phase_lambda_cv(profile: dict) -> float:
+    phases = profile.get("phases", [])
+    lambdas = []
+    for phase in phases:
+        value = float(phase.get("lambda", 0.0) or 0.0)
+        if value <= 0.0:
+            cycles = float(phase.get("sim_cycles", 0.0) or 0.0)
+            packets = float(phase.get("total_packets", 0.0) or 0.0)
+            if cycles > 0.0:
+                value = packets / cycles
+        lambdas.append(value)
+    lambdas = [value for value in lambdas if value > 0.0]
+    if len(lambdas) < 2:
+        return 0.0
+    mean = sum(lambdas) / len(lambdas)
+    if mean <= 0.0:
+        return 0.0
+    variance = sum((value - mean) ** 2 for value in lambdas) / len(lambdas)
+    return math.sqrt(variance) / mean
+
+
 def predict_ratio(
     baseline_profile: dict,
     baseline_latency: float,
     target_latency: float,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, float]:
     slots = float(baseline_profile.get("mshr", {}).get("slots", 16) or 16)
     mean_mshr = _mean_cpu_mshr(baseline_profile)
     pressure = max(0.0, min(1.0, mean_mshr / slots))
-    sensitivity = math.sqrt(pressure)
+    phase_cv = _phase_lambda_cv(baseline_profile)
+    streaming = 1.0 / (1.0 + phase_cv)
+    pressure_exponent = 0.70 - 0.38 * streaming
+    sensitivity = pressure ** pressure_exponent
+    sensitivity = max(0.0, min(1.0, sensitivity))
     latency_ratio = baseline_latency / target_latency if target_latency > 0 else 1.0
     ratio = 1.0 - sensitivity * (1.0 - latency_ratio)
-    return max(0.0, min(1.0, ratio)), pressure, sensitivity
+    return max(0.0, min(1.0, ratio)), pressure, sensitivity, pressure_exponent
 
 
 def main() -> int:
@@ -65,8 +90,9 @@ def main() -> int:
     target_extra = _load_extra(args.target_extra)
     baseline_latency = float(baseline_extra.get("avg_packet_latency_cycles", 0.0) or 0.0)
     target_latency = float(target_extra.get("avg_packet_latency_cycles", 0.0) or 0.0)
-    predicted, pressure, sensitivity = predict_ratio(
+    predicted, pressure, sensitivity, pressure_exponent = predict_ratio(
         baseline_profile, baseline_latency, target_latency)
+    phase_cv = _phase_lambda_cv(baseline_profile)
 
     actual = None
     if args.target_profile:
@@ -84,6 +110,8 @@ def main() -> int:
     print(f"target_latency,{target_latency:.6f}")
     print(f"latency_ratio_base_over_target,{baseline_latency / target_latency:.6f}")
     print(f"baseline_cpu_mshr_pressure,{pressure:.6f}")
+    print(f"baseline_phase_lambda_cv,{phase_cv:.6f}")
+    print(f"pressure_exponent,{pressure_exponent:.6f}")
     print(f"feedback_sensitivity,{sensitivity:.6f}")
     print(f"predicted_demand_ratio,{predicted:.6f}")
     if actual is not None:
