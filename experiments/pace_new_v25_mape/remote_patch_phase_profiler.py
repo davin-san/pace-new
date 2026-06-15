@@ -201,12 +201,17 @@ cc.write_text(text)
 
 sim = Path("/storage/home/hcoda1/9/daoyama3/r-chao33-0/experiments/pace_new_v25_mape_20260606/scripts/pace_sim_v25_mesh_params.py")
 text = sim.read_text()
-needle = "phase_ticks   = cli.phase_ticks\n"
+text = text.replace('os.environ["PACE_PROFILER_PHASE_TICKS"] = str(phase_ticks)\n', "")
+text = text.replace('os.environ["PACE_PROFILER_PHASE_TICKS"] = str(cli.phase_ticks)\n', "")
+needle = "cli = parser.parse_args()\n"
+insert = (
+    "cli = parser.parse_args()\n"
+    "# PaceProfiler is constructed during Ruby/Garnet instantiation, so this\n"
+    "# environment variable must be set before any system objects are built.\n"
+    "os.environ[\"PACE_PROFILER_PHASE_TICKS\"] = str(cli.phase_ticks)\n"
+)
 if "PACE_PROFILER_PHASE_TICKS" not in text:
-    text = text.replace(
-        needle,
-        needle + "os.environ[\"PACE_PROFILER_PHASE_TICKS\"] = str(phase_ticks)\n",
-    )
+    text = text.replace(needle, insert)
 sim.write_text(text)
 
 builder = Path("/storage/home/hcoda1/9/daoyama3/r-chao33-0/experiments/pace_new_v25_mape_20260606/scripts/build_component_traffic_profile.py")
