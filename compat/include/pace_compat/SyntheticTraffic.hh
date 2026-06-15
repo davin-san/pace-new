@@ -103,6 +103,7 @@ struct ProfileSourceTraffic
     int source = 0;
     double rate_per_cycle = 0.0;
     std::vector<double> phase_rates_per_cycle;
+    std::vector<std::vector<ProfileEndpointChoice>> phase_endpoints_per_phase;
     double burst_cv = 0.0;
     double burst_multiplier = 1.0;
     uint64_t next_burst_cycle = 0;
@@ -204,6 +205,8 @@ class ProfileTraffic
 
   private:
     void inject(const ProfileSourceTraffic& source);
+    void injectFromEndpoints(
+        int source, const std::vector<ProfileEndpointChoice>& endpoints);
     void injectEndpoint(int source, const ProfileEndpointChoice& endpoint);
     void injectResponse(int source, int destination, int origin);
     void collectDelivered(uint64_t cycle);

@@ -26,6 +26,8 @@ def main() -> int:
     scale_cycles_stats_path = OUT / "stats_scale_cycles.json"
     incomplete_phase_profile = OUT / "incomplete_phase_profile.json"
     incomplete_phase_stats_path = OUT / "stats_incomplete_phase.json"
+    exact_phase_profile = OUT / "exact_phase_profile.json"
+    exact_phase_stats_path = OUT / "stats_exact_phase.json"
 
     _run([
         sys.executable,
@@ -248,6 +250,83 @@ def main() -> int:
         incomplete_phase_stats_path.read_text())["traffic"]
     if int(incomplete_phase_traffic["delivered_by_vnet"].get("1", 0)) <= 0:
         raise AssertionError(incomplete_phase_traffic)
+
+    exact_phase_profile.write_text(json.dumps({
+        "schema": "pace.component_traffic_profile.v1",
+        "source": {
+            "benchmark": "exact_phase_regression",
+            "num_cpus": 4,
+            "num_dirs": 0,
+            "ni_flit_size_bytes": 16,
+        },
+        "scale": {
+            "total_packets": 20,
+            "total_flits": 60,
+            "total_bytes": 960,
+            "sim_cycles": 2000,
+            "lambda_per_cpu": 0.0025,
+        },
+        "traffic": {
+            "vnet_packets": {"0": 10, "1": 10},
+            "vnet_flits": {"0": 10, "1": 50},
+            "packet_flits_by_vnet": {
+                "0": {"1": 10},
+                "1": {"5": 10},
+            },
+            "packet_bytes_by_vnet": {
+                "0": {"16": 10},
+                "1": {"80": 10},
+            },
+            "src_dst_ni_counts_by_vnet": {
+                "0": {"0": {"3": 10}},
+                "1": {"1": {"2": 10}},
+            },
+            "src_dst_ni_flits_counts_by_vnet": {
+                "0": {"0": {"3": {"1": 10}}},
+                "1": {"1": {"2": {"5": 10}}},
+            },
+            "src_dst_ni_bytes_counts_by_vnet": {
+                "0": {"0": {"3": {"16": 10}}},
+                "1": {"1": {"2": {"80": 10}}},
+            },
+            "src_counts_by_vnet": {
+                "0": {"0": 10},
+                "1": {"1": 10},
+            },
+        },
+        "phases": [{
+            "index": 0,
+            "sim_cycles": 100,
+            "total_packets": 20,
+            "lambda": 0.2,
+            "src_dst_ni_flits_counts_by_vnet": {
+                "0": {"0": {"3": {"1": 10}}},
+                "1": {"1": {"2": {"5": 10}}},
+            },
+        }],
+    }, indent=2) + "\n")
+
+    _run([
+        str(PACE),
+        "--topology-json",
+        str(topology),
+        "--simulate",
+        "--traffic-profile-json",
+        str(exact_phase_profile),
+        "--profile-phased",
+        "--drain-cycles",
+        "100",
+        "--stats-json",
+        str(exact_phase_stats_path),
+    ])
+    exact_phase_stats = json.loads(exact_phase_stats_path.read_text())
+    exact_phase_traffic = exact_phase_stats["traffic"]
+    if int(exact_phase_stats["cycles"]) != 200:
+        raise AssertionError(exact_phase_stats)
+    if int(exact_phase_traffic["delivered_by_vnet"].get("0", 0)) <= 0:
+        raise AssertionError(exact_phase_traffic)
+    if int(exact_phase_traffic["delivered_by_vnet"].get("1", 0)) <= 0:
+        raise AssertionError(exact_phase_traffic)
 
     print("profile_width: PASS")
     return 0

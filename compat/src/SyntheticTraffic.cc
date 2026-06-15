@@ -405,42 +405,50 @@ loadProfileTrafficConfig(const std::string& profile_json,
 
     const uint64_t unphased_sim_cycles = config.sim_cycles;
     std::vector<std::map<int, double>> phase_source_rates;
-    std::map<int, double> phase_packets_by_source;
+    std::vector<uint64_t> phase_cycles_by_index;
+    std::map<int, double> phase_fraction_packets_by_source;
     if (config.phased && root.contains("phases")) {
         uint64_t phase_start = 0;
         for (const auto& phase : root.at("phases").array()) {
             const uint64_t phase_cycles = asU64(phase, "sim_cycles", 0);
             const uint64_t phase_packets = asU64(
                 phase, "total_packets", 0);
+            const bool has_phase_pair_counts =
+                phase.contains("src_dst_ni_bytes_counts_by_vnet") ||
+                phase.contains("src_dst_ni_flits_counts_by_vnet") ||
+                phase.contains("src_dst_ni_counts_by_vnet");
             if (phase_cycles == 0 || phase_packets == 0 ||
-                !phase.contains("source_fractions")) {
+                (!phase.contains("source_fractions") &&
+                 !has_phase_pair_counts)) {
                 continue;
             }
             std::map<int, double> fractions;
             double fraction_sum = 0.0;
-            for (const auto& [src_key, fraction_json] :
-                 phase.at("source_fractions").object()) {
-                const double fraction = fraction_json.number();
-                if (fraction <= 0.0) {
-                    continue;
+            if (phase.contains("source_fractions")) {
+                for (const auto& [src_key, fraction_json] :
+                     phase.at("source_fractions").object()) {
+                    const double fraction = fraction_json.number();
+                    if (fraction <= 0.0) {
+                        continue;
+                    }
+                    fractions[std::stoi(src_key)] = fraction;
+                    fraction_sum += fraction;
                 }
-                fractions[std::stoi(src_key)] = fraction;
-                fraction_sum += fraction;
-            }
-            if (fraction_sum <= 0.0) {
-                continue;
             }
             std::map<int, double> rates;
-            for (const auto& [src, fraction] : fractions) {
-                rates[src] = rate_scale *
-                    (static_cast<double>(phase_packets) *
-                     (fraction / fraction_sum)) /
-                    static_cast<double>(phase_cycles);
-                phase_packets_by_source[src] +=
-                    rates[src] * static_cast<double>(phase_cycles);
+            if (fraction_sum > 0.0) {
+                for (const auto& [src, fraction] : fractions) {
+                    rates[src] = rate_scale *
+                        (static_cast<double>(phase_packets) *
+                         (fraction / fraction_sum)) /
+                        static_cast<double>(phase_cycles);
+                    phase_fraction_packets_by_source[src] +=
+                        rates[src] * static_cast<double>(phase_cycles);
+                }
             }
             phase_start += phase_cycles;
             config.phase_end_cycles.push_back(phase_start);
+            phase_cycles_by_index.push_back(phase_cycles);
             phase_source_rates.push_back(std::move(rates));
         }
         if (!config.phase_end_cycles.empty()) {
@@ -578,6 +586,105 @@ loadProfileTrafficConfig(const std::string& profile_json,
             }
         }
     }
+    std::map<int, std::vector<std::vector<ProfileEndpointChoice>>>
+        phase_endpoints_by_source;
+    std::map<int, double> phase_endpoint_packets_by_source;
+    bool has_phase_endpoint_counts = false;
+    if (config.phased && root.contains("phases") &&
+        !phase_cycles_by_index.empty()) {
+        size_t phase_index = 0;
+        for (const auto& phase : root.at("phases").array()) {
+            const uint64_t phase_cycles = asU64(phase, "sim_cycles", 0);
+            const uint64_t phase_packets = asU64(
+                phase, "total_packets", 0);
+            const bool has_phase_pair_bytes =
+                phase.contains("src_dst_ni_bytes_counts_by_vnet");
+            const bool has_phase_pair_flits =
+                phase.contains("src_dst_ni_flits_counts_by_vnet");
+            const bool has_phase_pair_counts =
+                phase.contains("src_dst_ni_counts_by_vnet");
+            if (phase_cycles == 0 || phase_packets == 0 ||
+                (!phase.contains("source_fractions") &&
+                 !has_phase_pair_bytes && !has_phase_pair_flits &&
+                 !has_phase_pair_counts)) {
+                continue;
+            }
+            if (phase_index >= phase_cycles_by_index.size()) {
+                break;
+            }
+            if (!has_phase_pair_bytes && !has_phase_pair_flits &&
+                !has_phase_pair_counts) {
+                phase_index++;
+                continue;
+            }
+            const auto& phase_pair_counts = has_phase_pair_bytes ?
+                phase.at("src_dst_ni_bytes_counts_by_vnet").object() :
+                (has_phase_pair_flits ?
+                 phase.at("src_dst_ni_flits_counts_by_vnet").object() :
+                 phase.at("src_dst_ni_counts_by_vnet").object());
+            for (const auto& [vnet_key, sources_json] : phase_pair_counts) {
+                const int vnet = std::stoi(vnet_key);
+                for (const auto& [src_key, dests_json] :
+                     sources_json.object()) {
+                    const int src = std::stoi(src_key);
+                    auto& phases = phase_endpoints_by_source[src];
+                    if (phases.size() < phase_cycles_by_index.size()) {
+                        phases.resize(phase_cycles_by_index.size());
+                    }
+                    for (const auto& [dst_key, count_json] :
+                         dests_json.object()) {
+                        const int dst = std::stoi(dst_key);
+                        if (has_phase_pair_bytes || has_phase_pair_flits) {
+                            for (const auto& [size_key, size_count_json] :
+                                 count_json.object()) {
+                                const uint64_t count =
+                                    static_cast<uint64_t>(
+                                        size_count_json.number());
+                                if (count == 0) {
+                                    continue;
+                                }
+                                ProfileEndpointChoice choice;
+                                choice.vnet = vnet;
+                                choice.destination = dst;
+                                if (has_phase_pair_bytes) {
+                                    choice.message_size = std::stoi(size_key);
+                                    choice.flits = ceilDiv(
+                                        choice.message_size,
+                                        config.source_flit_size);
+                                } else {
+                                    choice.flits = std::stoi(size_key);
+                                    choice.message_size =
+                                        std::max(1, choice.flits) *
+                                        config.source_flit_size;
+                                }
+                                choice.weight = count;
+                                phases[phase_index].push_back(choice);
+                                phase_endpoint_packets_by_source[src] +=
+                                    rate_scale *
+                                    static_cast<double>(count);
+                                has_phase_endpoint_counts = true;
+                            }
+                        } else {
+                            const uint64_t count =
+                                static_cast<uint64_t>(count_json.number());
+                            if (count == 0) {
+                                continue;
+                            }
+                            ProfileEndpointChoice choice;
+                            choice.vnet = vnet;
+                            choice.destination = dst;
+                            choice.weight = count;
+                            phases[phase_index].push_back(choice);
+                            phase_endpoint_packets_by_source[src] +=
+                                rate_scale * static_cast<double>(count);
+                            has_phase_endpoint_counts = true;
+                        }
+                    }
+                }
+            }
+            phase_index++;
+        }
+    }
     if (config.closed_loop) {
         config.response_probability = request_packets == 0 ? 0.0 :
             std::min(1.0, static_cast<double>(response_packets) /
@@ -595,8 +702,11 @@ loadProfileTrafficConfig(const std::string& profile_json,
             }
             const double expected =
                 rate_scale * static_cast<double>(source_packets);
+            const auto& phase_packets_by_source =
+                has_phase_endpoint_counts ? phase_endpoint_packets_by_source :
+                                            phase_fraction_packets_by_source;
             const auto it = phase_packets_by_source.find(source.source);
-            const double phased = it == phase_packets_by_source.end() ?
+            double phased = it == phase_packets_by_source.end() ?
                 0.0 : it->second;
             const double tolerance = std::max(1.0, expected * 0.01);
             if (std::abs(phased - expected) > tolerance) {
@@ -630,10 +740,31 @@ loadProfileTrafficConfig(const std::string& profile_json,
         if (config.phased && !phase_source_rates.empty()) {
             source.phase_rates_per_cycle.assign(
                 phase_source_rates.size(), 0.0);
-            for (size_t i = 0; i < phase_source_rates.size(); i++) {
-                auto it = phase_source_rates[i].find(source.source);
-                if (it != phase_source_rates[i].end()) {
-                    source.phase_rates_per_cycle[i] = it->second;
+            const auto phase_endpoints_it =
+                phase_endpoints_by_source.find(source.source);
+            if (phase_endpoints_it != phase_endpoints_by_source.end()) {
+                source.phase_endpoints_per_phase =
+                    phase_endpoints_it->second;
+                for (size_t i = 0;
+                     i < source.phase_endpoints_per_phase.size() &&
+                         i < phase_cycles_by_index.size();
+                     i++) {
+                    uint64_t phase_source_packets = 0;
+                    for (const auto& choice :
+                         source.phase_endpoints_per_phase[i]) {
+                        phase_source_packets += choice.weight;
+                    }
+                    source.phase_rates_per_cycle[i] =
+                        rate_scale *
+                        static_cast<double>(phase_source_packets) /
+                        static_cast<double>(phase_cycles_by_index[i]);
+                }
+            } else {
+                for (size_t i = 0; i < phase_source_rates.size(); i++) {
+                    auto it = phase_source_rates[i].find(source.source);
+                    if (it != phase_source_rates[i].end()) {
+                        source.phase_rates_per_cycle[i] = it->second;
+                    }
                 }
             }
         }
@@ -809,12 +940,18 @@ ProfileTraffic::step(uint64_t cycle)
             _phase_index < source.phase_rates_per_cycle.size()) {
             source_rate = source.phase_rates_per_cycle[_phase_index];
         }
+        const auto* endpoints = &source.endpoints;
+        if (_config.phased &&
+            _phase_index < source.phase_endpoints_per_phase.size() &&
+            !source.phase_endpoints_per_phase[_phase_index].empty()) {
+            endpoints = &source.phase_endpoints_per_phase[_phase_index];
+        }
         const double rate = source_rate *
             (_config.bursty ? source.burst_multiplier : 1.0);
         std::poisson_distribution<int> sends(rate);
         const int count = sends(_rng);
         for (int i = 0; i < count; i++) {
-            inject(source);
+            injectFromEndpoints(source.source, *endpoints);
         }
     }
     collectDelivered(cycle);
@@ -856,8 +993,18 @@ ProfileTraffic::chooseMessageSize(int vnet)
 void
 ProfileTraffic::inject(const ProfileSourceTraffic& source)
 {
-    const auto& endpoint = chooseEndpoint(source);
-    injectEndpoint(source.source, endpoint);
+    injectFromEndpoints(source.source, source.endpoints);
+}
+
+void
+ProfileTraffic::injectFromEndpoints(
+    int source, const std::vector<ProfileEndpointChoice>& endpoints)
+{
+    if (endpoints.empty()) {
+        return;
+    }
+    const auto& endpoint = weightedChoice(_rng, endpoints);
+    injectEndpoint(source, endpoint);
 }
 
 void
