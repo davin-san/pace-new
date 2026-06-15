@@ -24,6 +24,8 @@ def main() -> int:
     flow_stats_path = OUT / "stats_flow.json"
     auto_stats_path = OUT / "stats_auto.json"
     scale_cycles_stats_path = OUT / "stats_scale_cycles.json"
+    incomplete_phase_profile = OUT / "incomplete_phase_profile.json"
+    incomplete_phase_stats_path = OUT / "stats_incomplete_phase.json"
 
     _run([
         sys.executable,
@@ -176,6 +178,76 @@ def main() -> int:
     scale_cycles_stats = json.loads(scale_cycles_stats_path.read_text())
     if int(scale_cycles_stats["cycles"]) != 550:
         raise AssertionError(scale_cycles_stats)
+
+    incomplete_phase_profile.write_text(json.dumps({
+        "schema": "pace.component_traffic_profile.v1",
+        "source": {
+            "benchmark": "phase_coverage_regression",
+            "num_cpus": 4,
+            "num_dirs": 0,
+            "ni_flit_size_bytes": 16,
+        },
+        "scale": {
+            "total_packets": 200,
+            "total_flits": 600,
+            "total_bytes": 9600,
+            "sim_cycles": 2000,
+            "lambda_per_cpu": 0.025,
+        },
+        "traffic": {
+            "vnet_packets": {"0": 100, "1": 100},
+            "vnet_flits": {"0": 100, "1": 500},
+            "packet_flits_by_vnet": {
+                "0": {"1": 100},
+                "1": {"5": 100},
+            },
+            "packet_bytes_by_vnet": {
+                "0": {"16": 100},
+                "1": {"80": 100},
+            },
+            "src_dst_ni_counts_by_vnet": {
+                "0": {"0": {"3": 100}},
+                "1": {"1": {"2": 100}},
+            },
+            "src_dst_ni_flits_counts_by_vnet": {
+                "0": {"0": {"3": {"1": 100}}},
+                "1": {"1": {"2": {"5": 100}}},
+            },
+            "src_dst_ni_bytes_counts_by_vnet": {
+                "0": {"0": {"3": {"16": 100}}},
+                "1": {"1": {"2": {"80": 100}}},
+            },
+            "src_counts_by_vnet": {
+                "0": {"0": 100},
+                "1": {"1": 100},
+            },
+        },
+        "phases": [{
+            "index": 0,
+            "sim_cycles": 2000,
+            "total_packets": 200,
+            "lambda": 0.1,
+            "source_fractions": {"0": 1.0},
+        }],
+    }, indent=2) + "\n")
+
+    _run([
+        str(PACE),
+        "--topology-json",
+        str(topology),
+        "--simulate",
+        "--traffic-profile-json",
+        str(incomplete_phase_profile),
+        "--profile-phased",
+        "--drain-cycles",
+        "500",
+        "--stats-json",
+        str(incomplete_phase_stats_path),
+    ])
+    incomplete_phase_traffic = json.loads(
+        incomplete_phase_stats_path.read_text())["traffic"]
+    if int(incomplete_phase_traffic["delivered_by_vnet"].get("1", 0)) <= 0:
+        raise AssertionError(incomplete_phase_traffic)
 
     print("profile_width: PASS")
     return 0

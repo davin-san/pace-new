@@ -403,7 +403,9 @@ loadProfileTrafficConfig(const std::string& profile_json,
         config.drain_cycles = drain_override;
     }
 
+    const uint64_t unphased_sim_cycles = config.sim_cycles;
     std::vector<std::map<int, double>> phase_source_rates;
+    std::map<int, double> phase_packets_by_source;
     if (config.phased && root.contains("phases")) {
         uint64_t phase_start = 0;
         for (const auto& phase : root.at("phases").array()) {
@@ -434,6 +436,8 @@ loadProfileTrafficConfig(const std::string& profile_json,
                     (static_cast<double>(phase_packets) *
                      (fraction / fraction_sum)) /
                     static_cast<double>(phase_cycles);
+                phase_packets_by_source[src] +=
+                    rates[src] * static_cast<double>(phase_cycles);
             }
             phase_start += phase_cycles;
             config.phase_end_cycles.push_back(phase_start);
@@ -578,6 +582,34 @@ loadProfileTrafficConfig(const std::string& profile_json,
         config.response_probability = request_packets == 0 ? 0.0 :
             std::min(1.0, static_cast<double>(response_packets) /
                           static_cast<double>(request_packets));
+    }
+    if (config.phased && !phase_source_rates.empty()) {
+        bool phase_source_totals_match = true;
+        for (const auto& [_, source] : by_source) {
+            uint64_t source_packets = 0;
+            for (const auto& choice : source.endpoints) {
+                source_packets += choice.weight;
+            }
+            if (source_packets == 0) {
+                continue;
+            }
+            const double expected =
+                rate_scale * static_cast<double>(source_packets);
+            const auto it = phase_packets_by_source.find(source.source);
+            const double phased = it == phase_packets_by_source.end() ?
+                0.0 : it->second;
+            const double tolerance = std::max(1.0, expected * 0.01);
+            if (std::abs(phased - expected) > tolerance) {
+                phase_source_totals_match = false;
+                break;
+            }
+        }
+        if (!phase_source_totals_match) {
+            config.phased = false;
+            config.phase_end_cycles.clear();
+            phase_source_rates.clear();
+            config.sim_cycles = unphased_sim_cycles;
+        }
     }
     for (auto& [_, source] : by_source) {
         uint64_t source_packets = 0;
