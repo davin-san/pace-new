@@ -78,7 +78,7 @@ require_file "$CANNEAL_T1_TRUTH"
 require_file "$BLACKSCHOLES_T1_TRUTH"
 
 python3 tools/run_transfer_matrix.py \
-  --pace-bin ./pace-new \
+  --pace-bin "$WT/pace-new" \
   --cwd "$WT" \
   --output-dir "$EVAL" \
   --summary "$EVAL/summary_exactphase_transfer_20260615.csv" \
