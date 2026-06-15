@@ -23,6 +23,7 @@ def main() -> int:
     stats_path = OUT / "stats.json"
     flow_stats_path = OUT / "stats_flow.json"
     auto_stats_path = OUT / "stats_auto.json"
+    scale_cycles_stats_path = OUT / "stats_scale_cycles.json"
 
     _run([
         sys.executable,
@@ -54,7 +55,8 @@ def main() -> int:
             "total_flits": 500,
             "total_bytes": 7200,
             "sim_ticks": 50,
-            "lambda_per_cpu": 0.5,
+            "sim_cycles": 50,
+            "lambda_per_cpu": 0.1,
         },
         "traffic": {
             "vnet_packets": {"1": 100},
@@ -157,6 +159,23 @@ def main() -> int:
         raise AssertionError(auto_traffic)
     if int(auto_traffic["delivered_flits"]) != auto_delivered * 3:
         raise AssertionError(auto_traffic)
+
+    _run([
+        str(PACE),
+        "--topology-json",
+        str(topology),
+        "--simulate",
+        "--traffic-profile-json",
+        str(profile),
+        "--profile-flow-timing",
+        "--drain-cycles",
+        "500",
+        "--stats-json",
+        str(scale_cycles_stats_path),
+    ])
+    scale_cycles_stats = json.loads(scale_cycles_stats_path.read_text())
+    if int(scale_cycles_stats["cycles"]) != 550:
+        raise AssertionError(scale_cycles_stats)
 
     print("profile_width: PASS")
     return 0

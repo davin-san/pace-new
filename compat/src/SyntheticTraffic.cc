@@ -375,6 +375,19 @@ loadProfileTrafficConfig(const std::string& profile_json,
     }
 
     config.sim_cycles = sim_cycles_override;
+    if (config.sim_cycles == 0) {
+        config.sim_cycles = asU64(scale, "sim_cycles", 0);
+    }
+    if (config.sim_cycles == 0) {
+        const uint64_t sim_ticks = asU64(scale, "sim_ticks", 0);
+        const uint64_t clock_period_ticks =
+            asU64(scale, "clock_period_ticks", 0);
+        if (sim_ticks > 0 && clock_period_ticks > 0) {
+            config.sim_cycles = std::max<uint64_t>(
+                1, (sim_ticks + clock_period_ticks / 2) /
+                       clock_period_ticks);
+        }
+    }
     if (config.sim_cycles == 0 && lambda_per_cpu > 0.0 && num_cpus > 0) {
         config.sim_cycles = static_cast<uint64_t>(
             std::ceil(static_cast<double>(total_packets) /
