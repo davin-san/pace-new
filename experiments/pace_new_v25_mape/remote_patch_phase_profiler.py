@@ -124,11 +124,11 @@ new = """        if (ni_id >= 0 && ni_id < m_max_nodes && dest_ni >= 0) {
 if old in text and "m_phase_src_dst_ni_flits_inject_by_vnet[phase]" not in text:
     text = text.replace(old, new)
 
-old = """    out << "}\n";
+old = r"""    out << "}\n";
     out << "}\n";
 
     out.close();"""
-new = """    out << "},\n";
+new = r"""    out << "},\n";
 
     // ---- Exact per-phase topology-independent source-destination NI counts,
     //      split by packet flit count ----
