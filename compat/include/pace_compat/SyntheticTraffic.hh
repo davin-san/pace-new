@@ -127,6 +127,7 @@ struct ProfileTrafficConfig
     int source_flit_size = 16;
     uint64_t burst_window_cycles = 0;
     double response_probability = 1.0;
+    double profile_lambda_per_cpu = 0.0;
     std::vector<uint64_t> phase_end_cycles;
     std::vector<ProfileSourceTraffic> sources;
     std::vector<std::vector<ProfileFlitChoice>> flits_by_vnet;

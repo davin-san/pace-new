@@ -365,6 +365,7 @@ loadProfileTrafficConfig(const std::string& profile_json,
     config.phased = phased;
     config.flow_timing = flow_timing;
     config.flow_timing_auto = flow_timing_auto;
+    config.profile_lambda_per_cpu = lambda_per_cpu;
     config.source_flit_size = std::max(
         1, asInt(root.at("source"), "ni_flit_size_bytes",
                  config.source_flit_size));
@@ -654,7 +655,12 @@ ProfileTraffic::ProfileTraffic(RuntimeNetwork& runtime,
     if (_config.flow_timing_auto) {
         const int latency_envelope = std::max(
             _runtime.max_link_latency, _runtime.max_router_latency);
-        _config.flow_timing = latency_envelope >= 8;
+        // Dense profiles already superpose many active flows; replaying each
+        // flow's sampled CV can add artificial burst correlation.
+        const bool sparse_profile =
+            _config.profile_lambda_per_cpu <= 0.0 ||
+            _config.profile_lambda_per_cpu < 0.002;
+        _config.flow_timing = latency_envelope >= 8 && sparse_profile;
     }
     _stats.injected_by_vnet.assign(runtime.virtual_networks, 0);
     _stats.delivered_by_vnet.assign(runtime.virtual_networks, 0);
