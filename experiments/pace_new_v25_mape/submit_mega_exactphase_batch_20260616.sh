@@ -9,13 +9,46 @@ MANIFEST=$SCR/fullsys_flowstats_exactphase/${TAG}_manifest.csv
 JOBLIST=$SCR/fullsys_flowstats_exactphase/${TAG}_jobs.txt
 LIMIT=${LIMIT:-0}
 SUBMIT_DELAY_SEC=${SUBMIT_DELAY_SEC:-0}
+APPEND=${APPEND:-0}
 
 mkdir -p "$(dirname "$MANIFEST")"
-echo "job_id,bench,topo_id,topo_label,num_cpus,num_dirs,l2_size,mem_channels,parsec_input,link_latency,router_latency,link_width_bits,inter_latency,inter_width,tag,group" > "$MANIFEST"
-: > "$JOBLIST"
+if (( APPEND == 1 )) && [[ -f "$MANIFEST" && -f "$JOBLIST" ]]; then
+  echo "resuming manifest=$MANIFEST jobs=$JOBLIST"
+else
+  echo "job_id,bench,topo_id,topo_label,num_cpus,num_dirs,l2_size,mem_channels,parsec_input,link_latency,router_latency,link_width_bits,inter_latency,inter_width,tag,group" > "$MANIFEST"
+  : > "$JOBLIST"
+fi
 
 declare -A SEEN
 SUBMITTED=0
+SKIPPED_INVALID=0
+
+if [[ -f "$MANIFEST" ]]; then
+  while IFS=, read -r job_id bench topo_id topo_label num_cpus num_dirs l2_size mem_channels parsec_input link_latency router_latency link_width_bits inter_latency inter_width tag group; do
+    [[ "$job_id" == "job_id" || -z "$job_id" ]] && continue
+    key="$bench,$topo_id,$topo_label,$num_cpus,$num_dirs,$l2_size,$mem_channels,$parsec_input,$link_latency,$router_latency,$link_width_bits,$inter_latency,$inter_width"
+    SEEN[$key]=1
+  done < "$MANIFEST"
+fi
+
+skip_invalid_case() {
+  local topo_id=$1
+  local group=$2
+  local inter_width=$3
+
+  # PACE_Chiplet_CMesh currently fails before simulation because its topology
+  # module cannot import PACE_Chiplet in the profiler gem5 tree.
+  if [[ "$topo_id" == "T5" ]]; then
+    return 0
+  fi
+
+  # gem5 Garnet rejects heterogeneous link/router widths without SerDes.
+  if [[ "$group" == "chiplet_width" || "$group" == "chiplet_inter_width" ]] && [[ "$inter_width" != "128" ]]; then
+    return 0
+  fi
+
+  return 1
+}
 
 submit_case() {
   local bench=$1
@@ -32,6 +65,11 @@ submit_case() {
   local link_width_bits=${12:-128}
   local inter_latency=${13:-25}
   local inter_width=${14:-128}
+
+  if skip_invalid_case "$topo_id" "$group" "$inter_width"; then
+    SKIPPED_INVALID=$((SKIPPED_INVALID + 1))
+    return 0
+  fi
 
   local key="$bench,$topo_id,$topo_label,$num_cpus,$num_dirs,$l2_size,$mem_channels,$parsec_input,$link_latency,$router_latency,$link_width_bits,$inter_latency,$inter_width"
   if [[ -n "${SEEN[$key]:-}" ]]; then
@@ -141,5 +179,6 @@ for bench in "${candidate_workloads[@]}"; do
 done
 
 echo "submitted=$SUBMITTED"
+echo "skipped_invalid=$SKIPPED_INVALID"
 echo "manifest=$MANIFEST"
 echo "jobs=$JOBLIST"
