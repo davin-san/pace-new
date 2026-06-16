@@ -17,6 +17,11 @@ GEM5_ROOT = Path(
 TOPO_DIR = GEM5_ROOT / "configs" / "topologies"
 PACE_CHIPLET = TOPO_DIR / "PACE_Chiplet.py"
 PACE_CMESH = TOPO_DIR / "PACE_Chiplet_CMesh.py"
+SCRIPT_DIR = Path(
+    "/storage/home/hcoda1/9/daoyama3/r-chao33-0/experiments/"
+    "pace_new_v25_mape_20260606/scripts"
+)
+PACE_TOPO_BUILDER = SCRIPT_DIR / "build_pace_chiplet_topology.py"
 
 
 def patch_chiplet() -> None:
@@ -100,9 +105,55 @@ def patch_cmesh() -> None:
         raise RuntimeError("PACE_Chiplet_CMesh.py import form not recognized")
 
 
+def patch_pace_topology_builder() -> None:
+    text = PACE_TOPO_BUILDER.read_text()
+    old = """    def add_link(src: int, dst: int, src_out: str, dst_in: str,
+                 latency: int, weight: int, width: int) -> None:
+        nonlocal link_id
+        int_links.append({
+            "link_id": link_id,
+            "src_node": src,
+            "dst_node": dst,
+            "src_outport": src_out,
+            "dst_inport": dst_in,
+            "latency": latency,
+            "weight": weight,
+            "width": width,
+        })
+        link_id += 1
+"""
+    new = """    def add_link(src: int, dst: int, src_out: str, dst_in: str,
+                 latency: int, weight: int, width: int) -> None:
+        nonlocal link_id
+        int_links.append({
+            "link_id": link_id,
+            "src_node": src,
+            "dst_node": dst,
+            "src_outport": src_out,
+            "dst_inport": dst_in,
+            "latency": latency,
+            "weight": weight,
+            "width": width,
+            "src_cdc": False,
+            "dst_cdc": False,
+            "src_serdes": width != routers[src]["width"],
+            "dst_serdes": width != routers[dst]["width"],
+        })
+        link_id += 1
+"""
+    if old in text:
+        PACE_TOPO_BUILDER.write_text(text.replace(old, new))
+        print(f"patched {PACE_TOPO_BUILDER}")
+    elif '"src_serdes": width != routers[src]["width"]' in text:
+        print(f"already patched {PACE_TOPO_BUILDER}")
+    else:
+        raise RuntimeError("build_pace_chiplet_topology.py add_link block not found")
+
+
 def main() -> None:
     patch_chiplet()
     patch_cmesh()
+    patch_pace_topology_builder()
 
 
 if __name__ == "__main__":
