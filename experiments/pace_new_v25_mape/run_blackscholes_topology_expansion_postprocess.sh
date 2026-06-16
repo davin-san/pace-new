@@ -23,7 +23,7 @@ T1_BASE=$SCR/fullsys_flowstats_exactphase/blackscholes_c16_l2256kB_d4_mc1_T1_bas
 T1_RING25=$SCR/fullsys_flowstats_exactphase/blackscholes_c16_l2256kB_d4_mc1_T1_inter25_ll1_rl1_w128_exactphase_target_envfix_20260615
 
 TOPO_T0_BASE=$SCR/next_phase_pace_sweep/blackscholes_componentjoint_topology_latency_metadata_20260607/baseline/topology.json
-TOPO_T0_LL2=$SCR/next_phase_pace_sweep/blackscholes_componentjoint_topology_latency_metadata_20260607/int_lat2/topology.json
+TOPO_T0_LL2=$SCR/next_phase_pace_sweep/blackscholes_componentjoint_topology_latency_metadata_20260607/all_lat2/topology.json
 TOPO_T0_W256=$SCR/generated_topologies/blackscholes_meshxy_w256.json
 TOPO_T1_BASE=$SCR/generated_topologies/blackscholes_t1_base_chiplet.json
 TOPO_T1_RING25=$SCR/generated_topologies/blackscholes_t1_ring_lat25_chiplet.json
@@ -79,7 +79,7 @@ python3 tools/run_transfer_matrix.py \
   --output-dir "$EVAL" \
   --summary "$EVAL/summary_blackscholes_exact_topology_targets_20260615.csv" \
   --case "blackscholes_T0exact_self:$TOPO_T0_BASE:$SOURCE/component_traffic_profile.json:$SOURCE/pace_profiler_extra.json" \
-  --case "blackscholes_T0exact_to_T0_ll2:$TOPO_T0_LL2:$SOURCE/component_traffic_profile.json:$T0_LL2/pace_profiler_extra.json" \
+  --case "blackscholes_T0exact_to_T0_linklat2_alllinks:$TOPO_T0_LL2:$SOURCE/component_traffic_profile.json:$T0_LL2/pace_profiler_extra.json" \
   --case "blackscholes_T0exact_to_T0_w256:$TOPO_T0_W256:$SOURCE/component_traffic_profile.json:$T0_W256/pace_profiler_extra.json" \
   --case "blackscholes_T0exact_to_T1base:$TOPO_T1_BASE:$SOURCE/component_traffic_profile.json:$T1_BASE/pace_profiler_extra.json" \
   --case "blackscholes_T0exact_to_T1ring25:$TOPO_T1_RING25:$SOURCE/component_traffic_profile.json:$T1_RING25/pace_profiler_extra.json"
