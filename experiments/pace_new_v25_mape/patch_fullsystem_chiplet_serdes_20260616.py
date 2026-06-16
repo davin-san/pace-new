@@ -55,41 +55,47 @@ def patch_chiplet() -> None:
                 weight=weight,
                 width=width,
             )
-            if width != routers[src].width:
+            if width != flit_width:
                 link.src_serdes = True
                 link.src_net_bridge = NetworkBridge(
                     link=link.network_link,
                     vtype=\"OBJECT_LINK\",
-                    width=routers[src].width,
+                    width=flit_width,
                 )
                 link.src_cred_bridge = NetworkBridge(
                     link=link.credit_link,
                     vtype=\"LINK_OBJECT\",
-                    width=routers[src].width,
+                    width=flit_width,
                 )
-            if width != routers[dst].width:
+            if width != flit_width:
                 link.dst_serdes = True
                 link.dst_net_bridge = NetworkBridge(
                     link=link.network_link,
                     vtype=\"LINK_OBJECT\",
-                    width=routers[dst].width,
+                    width=flit_width,
                 )
                 link.dst_cred_bridge = NetworkBridge(
                     link=link.credit_link,
                     vtype=\"OBJECT_LINK\",
-                    width=routers[dst].width,
+                    width=flit_width,
                 )
             int_links.append(link)
             link_count += 1
 """
-    if old not in text:
-        if "link.src_serdes = True" in text:
-            print(f"already patched {PACE_CHIPLET}")
-            return
+    if old in text:
+        PACE_CHIPLET.write_text(text.replace(old, new))
+        print(f"patched {PACE_CHIPLET}")
+    elif "if width != routers[src].width:" in text:
+        text = text.replace("if width != routers[src].width:", "if width != flit_width:")
+        text = text.replace("if width != routers[dst].width:", "if width != flit_width:")
+        text = text.replace("width=routers[src].width,", "width=flit_width,")
+        text = text.replace("width=routers[dst].width,", "width=flit_width,")
+        PACE_CHIPLET.write_text(text)
+        print(f"repatched {PACE_CHIPLET}")
+    elif "if width != flit_width:" in text and "link.src_serdes = True" in text:
+        print(f"already patched {PACE_CHIPLET}")
+    else:
         raise RuntimeError("PACE_Chiplet.py add_link block not found")
-
-    PACE_CHIPLET.write_text(text.replace(old, new))
-    print(f"patched {PACE_CHIPLET}")
 
 
 def patch_cmesh() -> None:
