@@ -21,6 +21,7 @@ def main() -> int:
     topology = OUT / "mesh2x2_w256.json"
     profile = OUT / "bytes_profile.json"
     stats_path = OUT / "stats.json"
+    bursty_stats_path = OUT / "stats_bursty.json"
     flow_stats_path = OUT / "stats_flow.json"
     auto_stats_path = OUT / "stats_auto.json"
     scale_cycles_stats_path = OUT / "stats_scale_cycles.json"
@@ -28,6 +29,9 @@ def main() -> int:
     incomplete_phase_stats_path = OUT / "stats_incomplete_phase.json"
     exact_phase_profile = OUT / "exact_phase_profile.json"
     exact_phase_stats_path = OUT / "stats_exact_phase.json"
+    exact_phase_flow_profile = OUT / "exact_phase_flow_profile.json"
+    exact_phase_flow_stats_path = OUT / "stats_exact_phase_flow.json"
+    exact_phase_flow_trace_path = OUT / "trace_exact_phase_flow.jsonl"
 
     _run([
         sys.executable,
@@ -77,6 +81,7 @@ def main() -> int:
             "src_counts_by_vnet": {"1": {"0": 100}},
         },
         "burst": {
+            "per_node_injection_cv": {"0": 4.0},
             "flow_interarrival_by_source_vnet_flits": {
                 "0": {
                     "1": {
@@ -116,6 +121,29 @@ def main() -> int:
         raise AssertionError(traffic)
     if int(traffic["injected_flits"]) != int(traffic["injected_packets"]) * 3:
         raise AssertionError(traffic)
+
+    _run([
+        str(PACE),
+        "--topology-json",
+        str(topology),
+        "--simulate",
+        "--traffic-profile-json",
+        str(profile),
+        "--profile-sim-cycles",
+        "50",
+        "--profile-bursty",
+        "--drain-cycles",
+        "500",
+        "--stats-json",
+        str(bursty_stats_path),
+    ])
+    bursty_traffic = json.loads(bursty_stats_path.read_text())["traffic"]
+    if int(bursty_traffic["injected_packets"]) != 100:
+        raise AssertionError(bursty_traffic)
+    if int(bursty_traffic["delivered_packets"]) != 100:
+        raise AssertionError(bursty_traffic)
+    if int(bursty_traffic["delivered_flits"]) != 300:
+        raise AssertionError(bursty_traffic)
 
     _run([
         str(PACE),
@@ -327,6 +355,92 @@ def main() -> int:
         raise AssertionError(exact_phase_traffic)
     if int(exact_phase_traffic["delivered_by_vnet"].get("1", 0)) <= 0:
         raise AssertionError(exact_phase_traffic)
+
+    exact_phase_flow_profile.write_text(json.dumps({
+        "schema": "pace.component_traffic_profile.v1",
+        "source": {
+            "benchmark": "exact_phase_flow_regression",
+            "num_cpus": 4,
+            "num_dirs": 0,
+            "ni_flit_size_bytes": 16,
+        },
+        "scale": {
+            "total_packets": 40,
+            "total_flits": 120,
+            "total_bytes": 1920,
+            "sim_cycles": 200,
+            "lambda_per_cpu": 0.05,
+        },
+        "traffic": {
+            "vnet_packets": {"0": 20, "1": 20},
+            "vnet_flits": {"0": 20, "1": 100},
+            "packet_flits_by_vnet": {
+                "0": {"1": 20},
+                "1": {"5": 20},
+            },
+            "src_dst_ni_flits_counts_by_vnet": {
+                "0": {"0": {"3": {"1": 20}}},
+                "1": {"1": {"2": {"5": 20}}},
+            },
+        },
+        "burst": {
+            "flow_interarrival_by_source_vnet_flits": {
+                "0": {"0": {"1": {"cv": 0.0025}}},
+                "1": {"1": {"5": {"cv": 0.0025}}},
+            },
+        },
+        "phases": [
+            {
+                "phase_index": 0,
+                "sim_cycles": 100,
+                "total_packets": 20,
+                "src_dst_ni_flits_counts_by_vnet": {
+                    "0": {"0": {"3": {"1": 20}}},
+                },
+            },
+            {
+                "phase_index": 1,
+                "sim_cycles": 100,
+                "total_packets": 20,
+                "src_dst_ni_flits_counts_by_vnet": {
+                    "1": {"1": {"2": {"5": 20}}},
+                },
+            },
+        ],
+    }, indent=2) + "\n")
+
+    _run([
+        str(PACE),
+        "--topology-json",
+        str(topology),
+        "--simulate",
+        "--traffic-profile-json",
+        str(exact_phase_flow_profile),
+        "--profile-phased",
+        "--profile-flow-timing",
+        "--drain-cycles",
+        "100",
+        "--trace-jsonl",
+        str(exact_phase_flow_trace_path),
+        "--stats-json",
+        str(exact_phase_flow_stats_path),
+    ])
+    flow_phase_injects = [
+        event for event in (
+            json.loads(line)
+            for line in exact_phase_flow_trace_path.read_text().splitlines()
+        )
+        if event.get("event") == "profile.inject"
+    ]
+    if not flow_phase_injects:
+        raise AssertionError("no profile.inject events")
+    for event in flow_phase_injects:
+        tick = int(event["tick"])
+        vnet = int(event["vnet"])
+        if vnet == 0 and tick >= 100:
+            raise AssertionError(event)
+        if vnet == 1 and tick < 100:
+            raise AssertionError(event)
 
     print("profile_width: PASS")
     return 0

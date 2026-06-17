@@ -769,30 +769,57 @@ loadProfileTrafficConfig(const std::string& profile_json,
             }
         }
         if (config.flow_timing) {
-            std::map<uint64_t, ProfileFlowTraffic> flows_by_key;
-            for (const auto& choice : source.endpoints) {
-                auto& flow = flows_by_key[
-                    flowKey(source.source, choice.vnet, choice.flits)];
-                flow.vnet = choice.vnet;
-                flow.flits = choice.flits;
-                flow.endpoints.push_back(choice);
-            }
-            for (auto& [key, flow] : flows_by_key) {
-                uint64_t flow_packets = 0;
-                for (const auto& choice : flow.endpoints) {
-                    flow_packets += choice.weight;
+            auto appendFlows =
+                [&](const std::vector<ProfileEndpointChoice>& endpoints,
+                    uint64_t schedule_start, uint64_t schedule_cycles) {
+                    if (endpoints.empty() || schedule_cycles == 0) {
+                        return;
+                    }
+                    std::map<uint64_t, ProfileFlowTraffic> flows_by_key;
+                    for (const auto& choice : endpoints) {
+                        auto& flow = flows_by_key[flowKey(
+                            source.source, choice.vnet, choice.flits)];
+                        flow.vnet = choice.vnet;
+                        flow.flits = choice.flits;
+                        flow.schedule_start_cycle = schedule_start;
+                        flow.schedule_cycles = schedule_cycles;
+                        flow.endpoints.push_back(choice);
+                    }
+                    for (auto& [key, flow] : flows_by_key) {
+                        uint64_t flow_packets = 0;
+                        for (const auto& choice : flow.endpoints) {
+                            flow_packets += choice.weight;
+                        }
+                        if (flow_packets == 0) {
+                            continue;
+                        }
+                        flow.rate_per_cycle =
+                            rate_scale * static_cast<double>(flow_packets) /
+                            static_cast<double>(schedule_cycles);
+                        flow.packets_remaining = flow_packets;
+                        auto it = flow_interarrival_cv.find(key);
+                        flow.interarrival_cv =
+                            it == flow_interarrival_cv.end() ?
+                            1.0 : std::max(0.05, std::sqrt(it->second));
+                        source.flows.push_back(std::move(flow));
+                    }
+                };
+            if (config.phased &&
+                !source.phase_endpoints_per_phase.empty() &&
+                !phase_cycles_by_index.empty()) {
+                uint64_t phase_start = 0;
+                for (size_t i = 0;
+                     i < source.phase_endpoints_per_phase.size() &&
+                         i < phase_cycles_by_index.size();
+                     i++) {
+                    const uint64_t phase_cycles = phase_cycles_by_index[i];
+                    appendFlows(
+                        source.phase_endpoints_per_phase[i],
+                        phase_start, phase_cycles);
+                    phase_start += phase_cycles;
                 }
-                if (flow_packets == 0) {
-                    continue;
-                }
-                flow.rate_per_cycle =
-                    rate_scale * static_cast<double>(flow_packets) /
-                    static_cast<double>(config.sim_cycles);
-                flow.packets_remaining = flow_packets;
-                auto it = flow_interarrival_cv.find(key);
-                flow.interarrival_cv = it == flow_interarrival_cv.end() ?
-                    1.0 : std::max(0.05, std::sqrt(it->second));
-                source.flows.push_back(std::move(flow));
+            } else {
+                appendFlows(source.endpoints, 0, config.sim_cycles);
             }
         }
         config.sources.push_back(std::move(source));
@@ -837,6 +864,14 @@ ProfileTraffic::ProfileTraffic(RuntimeNetwork& runtime,
                 if (flow.packets_remaining == 0) {
                     continue;
                 }
+                const uint64_t schedule_start =
+                    std::min(flow.schedule_start_cycle, sim_cycles - 1);
+                const uint64_t schedule_end = std::min<uint64_t>(
+                    sim_cycles,
+                    schedule_start +
+                        std::max<uint64_t>(1, flow.schedule_cycles));
+                const uint64_t schedule_cycles =
+                    std::max<uint64_t>(1, schedule_end - schedule_start);
                 flow.scheduled_cycles.reserve(flow.packets_remaining);
                 const double cv = std::max(0.05, flow.interarrival_cv);
                 const double variance = cv * cv;
@@ -854,10 +889,10 @@ ProfileTraffic::ProfileTraffic(RuntimeNetwork& runtime,
                     const double position =
                         total_gap > 0.0 ? elapsed / total_gap : 0.0;
                     const uint64_t cycle = std::min<uint64_t>(
-                        sim_cycles - 1,
-                        static_cast<uint64_t>(
+                        schedule_end - 1,
+                        schedule_start + static_cast<uint64_t>(
                             std::floor(position *
-                                       static_cast<double>(sim_cycles))));
+                                       static_cast<double>(schedule_cycles))));
                     flow.scheduled_cycles.push_back(cycle);
                     elapsed += gaps[i + 1];
                 }
@@ -901,6 +936,136 @@ ProfileTraffic::ProfileTraffic(RuntimeNetwork& runtime,
                 value *= norm;
             }
         }
+        auto appendBurstySchedule =
+            [&](ProfileSourceTraffic& source, uint64_t schedule_start,
+                uint64_t schedule_cycles, double rate_per_cycle,
+                uint64_t exact_packets) {
+                if (schedule_cycles == 0 ||
+                    (rate_per_cycle <= 0.0 && exact_packets == 0)) {
+                    return;
+                }
+                const uint64_t schedule_end = std::min<uint64_t>(
+                    _config.sim_cycles, schedule_start + schedule_cycles);
+                if (schedule_end <= schedule_start) {
+                    return;
+                }
+                const uint64_t packets = exact_packets > 0 ? exact_packets :
+                    static_cast<uint64_t>(
+                    std::llround(rate_per_cycle *
+                                 static_cast<double>(
+                                     schedule_end - schedule_start)));
+                if (packets == 0) {
+                    return;
+                }
+
+                struct Segment
+                {
+                    uint64_t start = 0;
+                    uint64_t cycles = 0;
+                    double weight = 0.0;
+                    double cumulative = 0.0;
+                };
+                std::vector<Segment> segments;
+                double total_weight = 0.0;
+                uint64_t cursor = schedule_start;
+                while (cursor < schedule_end) {
+                    const size_t window_index = static_cast<size_t>(
+                        cursor / _config.burst_window_cycles);
+                    const uint64_t window_end = std::min<uint64_t>(
+                        schedule_end,
+                        (static_cast<uint64_t>(window_index) + 1) *
+                            _config.burst_window_cycles);
+                    const uint64_t cycles = window_end - cursor;
+                    const double multiplier =
+                        window_index < source.burst_multipliers.size() ?
+                        source.burst_multipliers[window_index] : 1.0;
+                    const double weight =
+                        std::max(0.0, multiplier) *
+                        static_cast<double>(cycles);
+                    if (cycles > 0 && weight > 0.0) {
+                        total_weight += weight;
+                        segments.push_back(
+                            {cursor, cycles, weight, total_weight});
+                    }
+                    cursor = window_end;
+                }
+                if (segments.empty() || total_weight <= 0.0) {
+                    return;
+                }
+
+                std::uniform_real_distribution<double> jitter(0.0, 1.0);
+                source.scheduled_cycles.reserve(
+                    source.scheduled_cycles.size() + packets);
+                for (uint64_t i = 0; i < packets; i++) {
+                    const double target =
+                        (static_cast<double>(i) + jitter(_rng)) *
+                        total_weight / static_cast<double>(packets);
+                    auto it = std::lower_bound(
+                        segments.begin(), segments.end(), target,
+                        [](const Segment& segment, double value) {
+                            return segment.cumulative < value;
+                        });
+                    if (it == segments.end()) {
+                        it = std::prev(segments.end());
+                    }
+                    const double previous =
+                        it == segments.begin() ? 0.0 :
+                                                 std::prev(it)->cumulative;
+                    const double within = std::clamp(
+                        (target - previous) / it->weight, 0.0, 1.0);
+                    const uint64_t offset = std::min<uint64_t>(
+                        it->cycles - 1,
+                        static_cast<uint64_t>(
+                            std::floor(within *
+                                       static_cast<double>(it->cycles))));
+                    source.scheduled_cycles.push_back(it->start + offset);
+                }
+            };
+        for (auto& source : _config.sources) {
+            uint64_t source_packets = 0;
+            for (const auto& choice : source.endpoints) {
+                source_packets += choice.weight;
+            }
+            if (_config.phased && !source.phase_rates_per_cycle.empty() &&
+                !_config.phase_end_cycles.empty()) {
+                uint64_t phase_start = 0;
+                for (size_t i = 0; i < source.phase_rates_per_cycle.size();
+                     i++) {
+                    const uint64_t phase_end =
+                        i < _config.phase_end_cycles.size() ?
+                        _config.phase_end_cycles[i] : _config.sim_cycles;
+                    if (phase_end > phase_start) {
+                        uint64_t phase_packets = 0;
+                        if (i < source.phase_endpoints_per_phase.size()) {
+                            for (const auto& choice :
+                                 source.phase_endpoints_per_phase[i]) {
+                                phase_packets += choice.weight;
+                            }
+                        }
+                        appendBurstySchedule(
+                            source, phase_start, phase_end - phase_start,
+                            source.phase_rates_per_cycle[i], phase_packets);
+                    }
+                    phase_start = phase_end;
+                }
+            } else {
+                appendBurstySchedule(
+                    source, 0, _config.sim_cycles, source.rate_per_cycle,
+                    source_packets);
+            }
+            if (source.scheduled_cycles.size() < source_packets) {
+                appendBurstySchedule(
+                    source, 0, _config.sim_cycles, source.rate_per_cycle,
+                    source_packets - source.scheduled_cycles.size());
+            }
+            std::sort(source.scheduled_cycles.begin(),
+                      source.scheduled_cycles.end());
+            if (source.scheduled_cycles.size() > source_packets) {
+                source.scheduled_cycles.resize(source_packets);
+            }
+            _stats.scheduled_profile_packets +=
+                source.scheduled_cycles.size();
+        }
     }
 }
 
@@ -926,14 +1091,21 @@ ProfileTraffic::step(uint64_t cycle)
             }
             continue;
         }
-        if (_config.bursty && cycle >= source.next_burst_cycle) {
-            if (source.burst_index < source.burst_multipliers.size()) {
-                source.burst_multiplier =
-                    source.burst_multipliers[source.burst_index++];
-            } else {
-                source.burst_multiplier = 1.0;
+        if (_config.bursty) {
+            const auto* endpoints = &source.endpoints;
+            if (_config.phased &&
+                _phase_index < source.phase_endpoints_per_phase.size() &&
+                !source.phase_endpoints_per_phase[_phase_index].empty()) {
+                endpoints = &source.phase_endpoints_per_phase[_phase_index];
             }
-            source.next_burst_cycle = cycle + _config.burst_window_cycles;
+            while (source.next_packet_index <
+                       source.scheduled_cycles.size() &&
+                   source.scheduled_cycles[source.next_packet_index] <=
+                       cycle) {
+                injectFromEndpoints(source.source, *endpoints);
+                source.next_packet_index++;
+            }
+            continue;
         }
         double source_rate = source.rate_per_cycle;
         if (_config.phased &&
@@ -946,8 +1118,7 @@ ProfileTraffic::step(uint64_t cycle)
             !source.phase_endpoints_per_phase[_phase_index].empty()) {
             endpoints = &source.phase_endpoints_per_phase[_phase_index];
         }
-        const double rate = source_rate *
-            (_config.bursty ? source.burst_multiplier : 1.0);
+        const double rate = source_rate;
         std::poisson_distribution<int> sends(rate);
         const int count = sends(_rng);
         for (int i = 0; i < count; i++) {
@@ -1013,6 +1184,7 @@ ProfileTraffic::injectEndpoint(int source, const ProfileEndpointChoice& endpoint
     if (source < 0 || source >= _runtime.nodes ||
         endpoint.destination < 0 || endpoint.destination >= _runtime.nodes ||
         endpoint.vnet < 0 || endpoint.vnet >= _runtime.virtual_networks) {
+        _stats.invalid_profile_packets++;
         return;
     }
     if (_config.closed_loop &&

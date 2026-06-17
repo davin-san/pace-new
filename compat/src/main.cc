@@ -220,6 +220,10 @@ writeStatsJson(const std::string& path, const pace::RuntimeNetwork& runtime,
     out << "    \"attempted_packets\": " << stats.attempted << ",\n";
     out << "    \"injected_packets\": " << stats.injected << ",\n";
     out << "    \"delivered_packets\": " << stats.delivered << ",\n";
+    out << "    \"scheduled_profile_packets\": "
+        << stats.scheduled_profile_packets << ",\n";
+    out << "    \"invalid_profile_packets\": "
+        << stats.invalid_profile_packets << ",\n";
     out << "    \"injected_flits\": " << stats.injected_flits << ",\n";
     out << "    \"delivered_flits\": " << stats.delivered_flits << ",\n";
     out << "    \"avg_packet_latency_cycles\": " << avg_packet_latency << ",\n";

@@ -40,6 +40,8 @@ struct SyntheticTrafficStats
     uint64_t injected_flits = 0;
     uint64_t delivered_flits = 0;
     uint64_t cycles = 0;
+    uint64_t scheduled_profile_packets = 0;
+    uint64_t invalid_profile_packets = 0;
     uint64_t packet_latency_sum = 0;
     uint64_t packet_network_latency_sum = 0;
     std::vector<uint64_t> packet_latencies;
@@ -89,6 +91,8 @@ struct ProfileFlowTraffic
 {
     int vnet = 0;
     int flits = 0;
+    uint64_t schedule_start_cycle = 0;
+    uint64_t schedule_cycles = 0;
     double rate_per_cycle = 0.0;
     double interarrival_cv = 1.0;
     double next_cycle = 0.0;
@@ -108,7 +112,9 @@ struct ProfileSourceTraffic
     double burst_multiplier = 1.0;
     uint64_t next_burst_cycle = 0;
     size_t burst_index = 0;
+    size_t next_packet_index = 0;
     std::vector<double> burst_multipliers;
+    std::vector<uint64_t> scheduled_cycles;
     std::vector<ProfileEndpointChoice> endpoints;
     std::vector<ProfileFlowTraffic> flows;
 };
